@@ -129,7 +129,6 @@ localparam SP64     = 1'b0;
 `endif
 
 assign ADC_BUS  = 'Z;
-assign USER_OUT = '1;
 assign VGA_F1 = 0;
 
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
@@ -172,6 +171,8 @@ parameter CONF_STR = {
 	"OE,Multitap,Disabled,Port1;",
 	"OB,BIOS,Enable,Disable;",
 	"OF,Disable mapper,No,Yes;",
+	"-;",
+	"OG,Serial Mode,OFF,LLAPI;",
 	"-;",
 	"R0,Reset;",
 	"J1,Fire 1,Fire 2,Pause;",
@@ -455,8 +456,8 @@ system #(MAX_SPPL) system
 	.nvram_q(nvram_q)
 );
 
-assign joy[0] = status[1] ? joy_1 : joy_0;
-assign joy[1] = status[1] ? joy_0 : joy_1;
+assign joy[0] = status[1] ? joy_b : joy_a;
+assign joy[1] = status[1] ? joy_a : joy_b;
 
 wire [6:0] joya = ~joy[jcnt];
 wire [6:0] joyb = status[14] ? 7'h7F : ~joy[1];
@@ -481,6 +482,84 @@ always @(posedge clk_sys) begin
 
 	if(reset | ~status[14]) jcnt <= 0;
 end
+
+
+//////////////////   LLAPI   ///////////////////
+
+wire [31:0] llapi_buttons, llapi_buttons2;
+wire [71:0] llapi_analog, llapi_analog2;
+wire [7:0]  llapi_type, llapi_type2;
+wire llapi_en, llapi_en2;
+
+wire llapi_select = status[16];
+
+wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
+
+always_comb begin
+	USER_OUT = 5'b111111;
+	if (llapi_select) begin
+		USER_OUT[0] = llapi_latch_o;
+		USER_OUT[1] = llapi_data_o;
+		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
+		USER_OUT[4] = llapi_latch_o2;
+		USER_OUT[5] = llapi_data_o2;
+	end
+end
+
+LLAPI llapi
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(VBlank),
+	.IO_LATCH_IN(USER_IN[0]),
+	.IO_LATCH_OUT(llapi_latch_o),
+	.IO_DATA_IN(USER_IN[1]),
+	.IO_DATA_OUT(llapi_data_o),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons),
+	.LLAPI_ANALOG(llapi_analog),
+	.LLAPI_TYPE(llapi_type),
+	.LLAPI_EN(llapi_en)
+);
+
+LLAPI llapi2
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(VBlank),
+	.IO_LATCH_IN(USER_IN[4]),
+	.IO_LATCH_OUT(llapi_latch_o2),
+	.IO_DATA_IN(USER_IN[5]),
+	.IO_DATA_OUT(llapi_data_o2),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons2),
+	.LLAPI_ANALOG(llapi_analog2),
+	.LLAPI_TYPE(llapi_type2),
+	.LLAPI_EN(llapi_en2)
+);
+
+wire use_llapi = llapi_en && llapi_select;
+wire use_llapi2 = llapi_en2 && llapi_select;
+// Indexes:
+// 0 = D+    = P1 Latch
+// 1 = D-    = P1 Data
+// 2 = TX-   = LLAPI Enable
+// 3 = GND_d = N/C
+// 4 = RX+   = P2 Latch
+// 5 = RX-   = P2 Data
+
+wire [6:0] joy_ll_a = {
+	llapi_buttons[5], llapi_buttons[1], llapi_buttons[0],
+	llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // dpad
+};
+
+wire [6:0] joy_ll_b = {
+	llapi_buttons2[5], llapi_buttons2[1], llapi_buttons2[0],
+	llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // dpad
+};
+
+wire llapi_osd = (llapi_buttons[4] & llapi_buttons[5]) || (llapi_buttons2[4] & llapi_buttons2[5]);
+
+wire [6:0] joy_a = use_llapi  ? joy_ll_a : joy_0;
+wire [6:0] joy_b = use_llapi2 ? joy_ll_b : joy_1;
 
 spram #(.widthad_a(13)) ram_inst
 (

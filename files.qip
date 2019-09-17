@@ -16,4 +16,5 @@ set_global_assignment -name VHDL_FILE vdp_background.vhd
 set_global_assignment -name VHDL_FILE vdp.vhd
 set_global_assignment -name VHDL_FILE system.vhd
 set_global_assignment -name VHDL_FILE io.vhd
+set_global_assignment -name SYSTEMVERILOG_FILE llapi.sv
 set_global_assignment -name SYSTEMVERILOG_FILE SMS.sv
