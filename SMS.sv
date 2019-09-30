@@ -59,6 +59,11 @@ module emu
 	output  [1:0] LED_POWER,
 	output  [1:0] LED_DISK,
 
+	// I/O board button press simulation (active high)
+	// b[1]: user button
+	// b[0]: osd button
+	output  [1:0] BUTTONS,
+
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
 	output        AUDIO_S, // 1 - signed audio samples, 0 - unsigned
@@ -67,7 +72,7 @@ module emu
 	//ADC
 	inout   [3:0] ADC_BUS,
 
-	// SD-SPI
+	//SD-SPI
 	output        SD_SCK,
 	output        SD_MOSI,
 	input         SD_MISO,
@@ -110,10 +115,10 @@ module emu
 	// Open-drain User port.
 	// 0 - D+/RX
 	// 1 - D-/TX
-	// 2..5 - USR1..USR4
+	// 2..6 - USR2..USR6
 	// Set USER_OUT to 1 to read from USER_IN.
-	input   [5:0] USER_IN,
-	output  [5:0] USER_OUT,
+	input   [6:0] USER_IN,
+	output  [6:0] USER_OUT,
 
 	input         OSD_STATUS
 );
@@ -139,6 +144,7 @@ assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DD
 assign LED_USER  = cart_download | bk_state | (status[23] & bk_pending);
 assign LED_DISK  = 0 ;
 assign LED_POWER = 0 ;
+assign BUTTONS   = 0;
 
 assign VIDEO_ARX = status[9] ? 8'd16 : 8'd4;
 assign VIDEO_ARY = status[9] ? 8'd9  : 8'd3;
@@ -598,8 +604,8 @@ video video
 	.smode_M3(smode_M3),
 	.x(x),
 	.y(y),
-	.hsync(HSync),
-	.vsync(VSync),
+	.hsync(HS),
+	.vsync(VS),
 	.hblank(HBlank),
 	.vblank(VBlank)
 );
@@ -637,7 +643,8 @@ always @(negedge clk_sys) begin
 	end
 end
 
-wire HSync, VSync;
+wire HS, VS;
+reg  HSync, VSync;
 wire HBlank, VBlank;
 
 wire [2:0] scale = status[5:3];
@@ -645,6 +652,11 @@ wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
 
 assign CLK_VIDEO = clk_sys;
 assign VGA_SL = sl[1:0];
+
+always @(posedge CLK_VIDEO) begin
+	HSync <= HS;
+	if(~HSync & HS) VSync <= VS;
+end
 
 video_mixer #(.HALF_DEPTH(1), .LINE_LENGTH(300)) video_mixer
 (
