@@ -564,8 +564,21 @@ wire [6:0] joy_ll_b = {
 
 wire llapi_osd = (llapi_buttons[26] & llapi_buttons[5] & llapi_buttons[0]) || (llapi_buttons2[26] & llapi_buttons2[5] & llapi_buttons2[0]);
 
-wire [6:0] joy_a = use_llapi  ? joy_ll_a : joy_0;
-wire [6:0] joy_b = use_llapi2 ? joy_ll_b : joy_1;
+wire [6:0] joy_a;
+wire [6:0] joy_b;
+// if LLAPI is enabled, shift USB controllers to next available player slot
+always_comb begin
+        if (use_llapi & use_llapi2) begin
+                joy_a = joy_ll_a;
+                joy_b = joy_ll_b;
+        end else if (use_llapi ^ use_llapi2) begin
+                joy_a = use_llapi  ? joy_ll_a : joy_0;
+                joy_b = use_llapi2 ? joy_ll_b : joy_0;
+        end else begin
+                joy_a = joy_0;
+                joy_b = joy_1;
+        end
+end
 
 spram #(.widthad_a(13)) ram_inst
 (
