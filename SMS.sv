@@ -123,16 +123,6 @@ module emu
 	input         OSD_STATUS
 );
 
-`define USE_SP64
-
-`ifdef USE_SP64
-localparam MAX_SPPL = 63;
-localparam SP64     = 1'b1;
-`else
-localparam MAX_SPPL = 7;
-localparam SP64     = 1'b0;
-`endif
-
 assign ADC_BUS  = 'Z;
 assign VGA_F1 = 0;
 
@@ -146,8 +136,8 @@ assign LED_DISK  = 0 ;
 assign LED_POWER = 0 ;
 assign BUTTONS   = llapi_osd;
 
-assign VIDEO_ARX = status[9] ? 8'd16 : 8'd4;
-assign VIDEO_ARY = status[9] ? 8'd9  : 8'd3;
+assign VIDEO_ARX = status[9] ? 8'd16 : gg ? 8'd10 : 8'd4;
+assign VIDEO_ARY = status[9] ? 8'd9  : gg ? 8'd9  : 8'd3;
 
 `include "build_id.v"
 parameter CONF_STR = {
@@ -163,22 +153,37 @@ parameter CONF_STR = {
 	"D0R7,Save Backup RAM;",
 	"D0ON,Autosave,OFF,ON;",
 	"-;",
-	"O9,Aspect ratio,4:3,16:9;",
-	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
-	"O2,TV System,NTSC,PAL;",
-	"OD,Border,No,Yes;",
-`ifdef USE_SP64
-	"O8,Sprites per line,Standard,All;",
-`endif
-	"OC,FM sound,Enable,Disable;",
+
 	"OA,Region,US/UE,Japan;",
-	"-;",
-	"O1,Swap joysticks,No,Yes;",
-	"OE,Multitap,Disabled,Port1;",
 	"OB,BIOS,Enable,Disable;",
 	"OF,Disable mapper,No,Yes;",
 	"-;",
-	"OG,Serial Mode,OFF,LLAPI;",
+
+	"P1,Audio & Video;",
+	"P1-;",
+	"P1O2,TV System,NTSC,PAL;",
+	"H2P1O9,Aspect ratio,4:3,16:9;",
+	"h2P1O9,Aspect ratio,10:9,16:9;",
+	"P1O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+	"P1-;",
+	"P1OD,Border,No,Yes;",
+	"P1O8,Sprites per line,Standard,All;",
+	"P1-;",
+	"P1H2OC,SMS FM sound,Enable,Disable;",
+
+	"P2,Input;",
+	"P2-;",
+	"P2O1,Swap joysticks,No,Yes;",
+	"P2OE,Multitap,Disabled,Port1;",
+	"D3P2OH,Pause Btn Combo,No,Yes;",
+	"P2-;",
+	"P2OPQ,Serial,OFF,SNAC,LLAPI;",
+	"P2-;",
+	"D2P2OIJ,Gun Control,Disabled,Joy1,Joy2,Mouse;",
+	"D4P2OK,Gun Fire,Joy,Mouse;",
+	"D4P2OL,Gun Port,Port1,Port2;",
+	"D4P2OMN,Cross,Small,Medium,Big,None;",
+
 	"-;",
 	"R0,Reset;",
 	"J1,Fire 1,Fire 2,Pause;",
@@ -205,6 +210,7 @@ wire reset = RESET | status[0] | buttons[1] | cart_download | bk_loading;
 
 //////////////////   HPS I/O   ///////////////////
 wire  [6:0] joy[4], joy_0, joy_1;
+wire  [7:0] joy0_x,joy0_y,joy1_x,joy1_y;
 wire  [1:0] buttons;
 wire [31:0] status;
 
@@ -230,6 +236,8 @@ wire [63:0] img_size;
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
 
+wire [24:0] ps2_mouse;
+
 hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(0)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -241,10 +249,12 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(0)) hps_io
 	.joystick_1(joy_1),
 	.joystick_2(joy[2]),
 	.joystick_3(joy[3]),
+	.joystick_analog_0({joy0_y, joy0_x}),
+	.joystick_analog_1({joy1_y, joy1_x}),
 
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({~gg_avail,~bk_ena}),
+	.status_menumask({~gun_en,~raw_serial,gg,~gg_avail,~bk_ena}),
 	.forced_scandoubler(forced_scandoubler),
 	.new_vmode(pal),
 	.gamma_bus(gamma_bus),
@@ -271,7 +281,9 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(0)) hps_io
 	.sd_buff_wr(sd_buff_wr),
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
-	.img_size(img_size)
+	.img_size(img_size),
+	
+	.ps2_mouse(ps2_mouse)
 );
 
 wire [21:0] ram_addr;
@@ -425,7 +437,7 @@ wire        nvram_we;
 wire  [7:0] nvram_d;
 wire  [7:0] nvram_q;
 
-system #(MAX_SPPL) system
+system #(63) system
 (
 	.clk_sys(clk_sys),
 	.ce_cpu(ce_cpu),
@@ -453,13 +465,20 @@ system #(MAX_SPPL) system
 	.j1_tl(joya[4]),
 	.j1_tr(joya[5]),
 	.j1_th(joya_th),
+
 	.j2_up(joyb[3]),
 	.j2_down(joyb[2]),
 	.j2_left(joyb[1]),
 	.j2_right(joyb[0]),
 	.j2_tl(joyb[4]),
 	.j2_tr(joyb[5]),
+	.j2_th(joyb_th),
 	.pause(joya[6]&joyb[6]),
+
+	.j1_tr_out(joya_tr_out),
+	.j1_th_out(joya_th_out),
+	.j2_tr_out(joyb_tr_out),
+	.j2_th_out(joyb_th_out),
 
 	.x(x),
 	.y(y),
@@ -472,12 +491,12 @@ system #(MAX_SPPL) system
 	.region(status[10]),
 	.mapper_lock(status[15]),
 
-	.fm_ena(~status[12]),
+	.fm_ena(~status[12] | gg),
 	.audioL(audio_l),
 	.audioR(audio_r),
 
 	.dbr(dbr),
-	.sp64(status[8] & SP64),
+	.sp64(status[8]),
 
 	.ram_a(ram_a),
 	.ram_we(ram_we),
@@ -493,29 +512,81 @@ system #(MAX_SPPL) system
 assign joy[0] = status[1] ? joy_b : joy_a;
 assign joy[1] = status[1] ? joy_a : joy_b;
 
-wire [6:0] joya = ~joy[jcnt];
-wire [6:0] joyb = status[14] ? 7'h7F : ~joy[1];
+wire raw_serial = status[25];
+wire pause_combo = status[17];
+wire swap = status[1];
 
+wire [6:0] joya;	
+wire [6:0] joyb;
+wire [6:0] joyser;
+
+wire      joya_tr_out;
+wire      joya_th_out;
+wire      joyb_tr_out;
+wire      joyb_th_out;
 wire      joya_th;
+wire      joyb_th;
+wire      joyser_th;
 reg [1:0] jcnt = 0;
+
 always @(posedge clk_sys) begin
 	reg old_th;
 	reg [15:0] tmr;
 
-	if(ce_cpu) begin
-		if(tmr > 57000) jcnt <= 0;
-		else if(joya_th) tmr <= tmr + 1'd1;
+	if (raw_serial) begin
+		joyser[3] <= USER_IN[1];//up
+		joyser[2] <= USER_IN[0];//down	
+		joyser[1] <= USER_IN[5];//left
+		joyser[0] <= USER_IN[3];//right	
+		joyser[4] <= USER_IN[2];//trigger / button1
+		joyser[5] <= USER_IN[6];//button2
+		joyser_th <= USER_IN[4];//sensor
+		
+		if (tmr) tmr <= tmr - 1'd1;
+		if (!USER_IN[0] & !USER_IN[2] & !USER_IN[6] & pause_combo) begin //D 1 2 combo
+			tmr <= 57000;
+		end
+		joyser[6] <= !tmr;
+		
+		joya <= swap ? ~joy[1] : joyser;
+		joyb <= swap ? joyser : ~joy[0];	
+		joya_th <=  swap ? 1'b1 : joyser_th;
+		joyb_th <=  swap ? joyser_th : 1'b1;
 
-		old_th <= joya_th;
-		if(old_th & ~joya_th) begin
-			tmr <= 0;
+	end else begin
+		joya <= ~joy[jcnt];
+		joyb <= status[14] ? 7'h7F : ~joy[1];
+		joya_th <=  1'b1;
+		joyb_th <=  1'b1;
+				
+
+		if(ce_cpu) begin
+			if(tmr > 57000) jcnt <= 0;
+			else if(joya_th) tmr <= tmr + 1'd1;
+
+			old_th <= joya_th;
+			if(old_th & ~joya_th) begin
+				tmr <= 0;
 			//first clock doesn't count as capacitor has not discharged yet
 			if(tmr < 57000) jcnt <= jcnt + 1'd1;
+			end
+		end
+
+		if(reset | ~status[14]) jcnt <= 0;
+	end
+	
+	if(gun_en) begin
+		if(gun_port) begin
+			joyb_th <= ~gun_sensor;
+			joyb <= {2'b11, ~gun_trigger ,4'b1111};
+		end else begin
+			joya_th <= ~gun_sensor;
+			joya <= {2'b11, ~gun_trigger ,4'b1111};
+			joyb <= raw_serial ? joyser : ~joy[0];
+			joyb_th <= raw_serial ? joyser_th : 1'b1;
 		end
 	end
-
-	if(reset | ~status[14]) jcnt <= 0;
-end
+end	
 
 
 //////////////////   LLAPI   ///////////////////
@@ -525,7 +596,7 @@ wire [71:0] llapi_analog, llapi_analog2;
 wire [7:0]  llapi_type, llapi_type2;
 wire llapi_en, llapi_en2;
 
-wire llapi_select = status[16];
+wire llapi_select = status[26];
 
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
 
@@ -537,6 +608,8 @@ always_comb begin
 		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
 		USER_OUT[4] = llapi_latch_o2;
 		USER_OUT[5] = llapi_data_o2;
+	else if (raw_serial & ~OSD_STATUS) begin
+		USER_OUT <= {swap ? joyb_tr_out : joya_tr_out, 1'b1, swap ? joyb_th_out : joya_th_out, 4'b1111, };
 	end
 end
 
@@ -656,7 +729,7 @@ video video
 	.ce_pix(ce_pix),
 	.pal(pal),
 	.gg(gg),
-	.border(status[13]),
+	.border(status[13] & ~gg),
 	.mask_column(mask_column),
    .smode_M1(smode_M1),
 	.smode_M3(smode_M3),
@@ -728,9 +801,9 @@ video_mixer #(.HALF_DEPTH(1), .LINE_LENGTH(300), .GAMMA(1)) video_mixer
 	.hq2x(scale==1),
 	.mono(0),
 
-	.R({2{color[3:0]}}),
-	.G({2{color[7:4]}}),
-	.B({2{color[11:8]}})
+	.R((gun_en & gun_target) ? 8'd255 : {2{color[3:0]}}),
+	.G((gun_en & gun_target) ? 8'd0   : {2{color[7:4]}}),
+	.B((gun_en & gun_target) ? 8'd0   : {2{color[11:8]}})
 );
 
 
@@ -813,6 +886,39 @@ always @(posedge clk_sys) begin
 		end
 	end
 end
+
+wire [1:0] gun_mode = status[19:18];
+wire       gun_btn_mode = status[20];
+wire       gun_port = status[21];
+wire       gun_en = gun_mode && !gg;
+wire       gun_target;
+wire       gun_sensor;
+wire       gun_trigger;
+
+lightgun lightgun
+(
+	.CLK(clk_sys),
+	.RESET(reset),
+
+	.MOUSE(ps2_mouse),
+	.MOUSE_XY(&gun_mode),
+
+	.JOY_X(gun_mode[0] ? joy0_x : joy1_x),
+	.JOY_Y(gun_mode[0] ? joy0_y : joy1_y),
+	.JOY(gun_mode[0] ? joy_0 : joy_1),
+
+	.HDE(~HBlank),
+	.VDE(~VBlank),
+	.CE_PIX(ce_pix),
+
+	.BTN_MODE(gun_btn_mode),
+	.SIZE(status[23:22]),
+	.SENSOR_DELAY(34),
+
+	.TARGET(gun_target),
+	.SENSOR(gun_sensor),
+	.TRIGGER(gun_trigger)
+);
 
 endmodule
 
