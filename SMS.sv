@@ -608,7 +608,7 @@ always_comb begin
 		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
 		USER_OUT[4] = llapi_latch_o2;
 		USER_OUT[5] = llapi_data_o2;
-	else if (raw_serial & ~OSD_STATUS) begin
+	end else if (raw_serial & ~OSD_STATUS) begin
 		USER_OUT <= {swap ? joyb_tr_out : joya_tr_out, 1'b1, swap ? joyb_th_out : joya_th_out, 4'b1111, };
 	end
 end
