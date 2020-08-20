@@ -64,6 +64,7 @@ module emu
 	// b[0]: osd button
 	output  [1:0] BUTTONS,
 
+	input         CLK_AUDIO, // 24.576 MHz
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
 	output        AUDIO_S, // 1 - signed audio samples, 0 - unsigned
@@ -169,7 +170,7 @@ parameter CONF_STR = {
 	"P1OD,Border,No,Yes;",
 	"P1O8,Sprites per line,Standard,All;",
 	"P1-;",
-	"P1H2OC,SMS FM sound,Enable,Disable;",
+	"D2P1OC,SMS FM sound,Enable,Disable;",
 
 	"P2,Input;",
 	"P2-;",
