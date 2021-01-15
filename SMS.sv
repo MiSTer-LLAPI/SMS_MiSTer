@@ -39,8 +39,8 @@ module emu
 	output        CE_PIXEL,
 
 	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	output  [7:0] VIDEO_ARX,
-	output  [7:0] VIDEO_ARY,
+	output [11:0] VIDEO_ARX,
+	output [11:0] VIDEO_ARY,
 
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
@@ -50,6 +50,7 @@ module emu
 	output        VGA_DE,    // = ~(VBlank | HBlank)
 	output        VGA_F1,
 	output  [1:0] VGA_SL,
+	output        VGA_SCALER, // Force VGA scaler
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
 
@@ -132,27 +133,37 @@ assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = '1;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;
 
-assign LED_USER  = cart_download | bk_state | (status[23] & bk_pending);
-assign LED_DISK  = 0 ;
-assign LED_POWER = 0 ;
+assign LED_USER  = cart_download | bk_state | (status[25] & bk_pending);
+assign LED_DISK  = 0;
+assign LED_POWER = 0;
 assign BUTTONS   = llapi_osd;
+assign VGA_SCALER= 0;
 
-assign VIDEO_ARX = status[9] ? 8'd16 : gg ? 8'd10 : 8'd4;
-assign VIDEO_ARY = status[9] ? 8'd9  : gg ? 8'd9  : 8'd3;
+wire [1:0] ar = status[27:26];
+
+assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
+
+// Status Bit Map:
+//             Upper                             Lower              
+// 0         1         2         3          4         5         6   
+// 01234567890123456789012345678901 23456789012345678901234567890123
+// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
+// XXXXXXXXXXXXXXXXXXXXXXXXXXXX  XX
 
 `include "build_id.v"
 parameter CONF_STR = {
 	"SMS;;",
 	"-;",
-	"FS,SMSSG;",
-	"FS,GG;",
+	"FS1,SMSSG;",
+	"FS2,GG;",
 	"-;",
 	"C,Cheats;",
 	"H1OO,Cheats enabled,ON,OFF;",
 	"-;",
 	"D0R6,Load Backup RAM;",
 	"D0R7,Save Backup RAM;",
-	"D0ON,Autosave,OFF,ON;",
+	"D0OP,Autosave,OFF,ON;",
 	"-;",
 
 	"OA,Region,US/UE,Japan;",
@@ -163,8 +174,7 @@ parameter CONF_STR = {
 	"P1,Audio & Video;",
 	"P1-;",
 	"P1O2,TV System,NTSC,PAL;",
-	"H2P1O9,Aspect ratio,4:3,16:9;",
-	"h2P1O9,Aspect ratio,10:9,16:9;",
+	"P1OQR,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"P1O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"P1-;",
 	"P1OD,Border,No,Yes;",
@@ -178,7 +188,7 @@ parameter CONF_STR = {
 	"P2OE,Multitap,Disabled,Port1;",
 	"D3P2OH,Pause Btn Combo,No,Yes;",
 	"P2-;",
-	"P2OPQ,Serial,OFF,SNAC,LLAPI;",
+	"P2OUV,Serial,OFF,SNAC,LLAPI;",
 	"P2-;",
 	"D2P2OIJ,Gun Control,Disabled,Joy1,Joy2,Mouse;",
 	"D4P2OK,Gun Fire,Joy,Mouse;",
@@ -213,7 +223,7 @@ wire reset = RESET | status[0] | buttons[1] | cart_download | bk_loading;
 wire  [6:0] joy[4], joy_0, joy_1;
 wire  [7:0] joy0_x,joy0_y,joy1_x,joy1_y;
 wire  [1:0] buttons;
-wire [31:0] status;
+wire [63:0] status;
 
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
@@ -513,7 +523,7 @@ system #(63) system
 assign joy[0] = status[1] ? joy_b : joy_a;
 assign joy[1] = status[1] ? joy_a : joy_b;
 
-wire raw_serial = status[25];
+wire raw_serial = status[30];
 wire pause_combo = status[17];
 wire swap = status[1];
 
@@ -597,7 +607,7 @@ wire [71:0] llapi_analog, llapi_analog2;
 wire [7:0]  llapi_type, llapi_type2;
 wire llapi_en, llapi_en2;
 
-wire llapi_select = status[26];
+wire llapi_select = status[31];
 
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
 
@@ -847,7 +857,7 @@ always @(posedge clk_sys) begin
 end
 
 wire bk_load    = status[6];
-wire bk_save    = status[7] | (bk_pending & OSD_STATUS && status[23]);
+wire bk_save    = status[7] | (bk_pending & OSD_STATUS && status[25]);
 reg  bk_loading = 0;
 reg  bk_state   = 0;
 
