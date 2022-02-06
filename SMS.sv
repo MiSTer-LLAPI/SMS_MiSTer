@@ -187,7 +187,9 @@ assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DD
 assign LED_USER  = cart_download | bk_state | (status[25] & bk_pending);
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
+//LLAPI: OSD combinaison
 assign BUTTONS   = osd_btn | llapi_osd;
+//LLAPI
 assign VGA_SCALER= 0;
 
 assign HDMI_FREEZE = 0;
@@ -260,8 +262,11 @@ parameter CONF_STR = {
 	"P2OE,Multitap,Disabled,Port1;",
 	"D3P2OH,Pause Btn Combo,No,Yes;",
 	"P2-;",
+	//LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[63] = 1.
+	//LLAPI: Always double check witht the bits map allocation table to avoid conflicts	
 	"P2oUV,Serial,OFF,SNAC,LLAPI;",
 	"P2-;",
+	//LLAPI
 	"D2P2OIJ,Gun Control,Disabled,Joy1,Joy2,Mouse;",
 	"D4P2OK,Gun Fire,Joy,Mouse;",
 	"D4P2OL,Gun Port,Port1,Port2;",
@@ -825,18 +830,21 @@ wire llapi_select = status[63];
 
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
 
+//Connect USER_OUT port to LLAPI
 always_comb begin
 	USER_OUT = 6'b111111;
 	if (llapi_select) begin
 		USER_OUT[0] = llapi_latch_o;
 		USER_OUT[1] = llapi_data_o;
-		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
+		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS); //LED on Blister
 		USER_OUT[4] = llapi_latch_o2;
 		USER_OUT[5] = llapi_data_o2;
 	end else if (raw_serial & ~OSD_STATUS) begin
 		USER_OUT <= {swap ? joyb_tr_out : joya_tr_out, 1'b1, swap ? joyb_th_out : joya_th_out, 4'b1111, };
 	end
 end
+
+//Port 1 conf
 
 LLAPI llapi
 (
@@ -852,6 +860,8 @@ LLAPI llapi
 	.LLAPI_TYPE(llapi_type),
 	.LLAPI_EN(llapi_en)
 );
+
+//Port 2 conf
 
 LLAPI llapi2
 (
@@ -896,6 +906,12 @@ wire use_llapi2 = llapi_en2 && llapi_select && ((|llapi_type2 && ~(&llapi_type2)
 // 4 = RX+   = P2 Latch
 // 5 = RX-   = P2 Data
 
+//Controller string provided by core for reference (order is important)
+//Controller specific mapping based on type. More info here : https://docs.google.com/document/d/12XpxrmKYx_jgfEPyw-O2zex1kTQZZ-NSBdLO2RQPRzM/edit
+//llapi_Buttons id are HID id - 1
+
+//Port 1 mapping
+
 wire [6:0] joy_ll_a = {
 	llapi_buttons[4], llapi_buttons[5], llapi_buttons[1], llapi_buttons[0],
 	llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // dpad
@@ -906,6 +922,8 @@ wire [7:0] joy_ll_b = {
 	llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // dpad
 };
 
+//Assign (DOWN + FIRST BUTTON) Combinaison to bring the OSD up - P1 and P1 ports.
+//TODO : Support long press detection
 wire llapi_osd = (llapi_buttons[26] & llapi_buttons[5] & llapi_buttons[0]) || (llapi_buttons2[26] & llapi_buttons2[5] & llapi_buttons2[0]);
 
 wire [7:0] joy_a;
@@ -931,51 +949,6 @@ always_comb begin
                 joy_d = joy_3[7:0];
         end
 end
-
-wire bk_load    = status[6];
-wire bk_save    = status[7] | (bk_pending & OSD_STATUS && status[25]);
-reg  bk_loading = 0;
-reg  bk_state   = 0;
-
-reg osd_btn = 0;
-always @(posedge clk_sys) begin
-
-	reg old_load = 0, old_save = 0, old_ack;
-	integer timeout = 0;
-	reg     last_rst = 0;
-
-	if (RESET) last_rst = 0;
-	if (status[0]) last_rst = 1;
-
-	if (last_rst & ~status[0]) begin
-		osd_btn <= 0;
-		if(timeout < 24000000) begin
-			timeout <= timeout + 1;
-			osd_btn <= 1;
-		end
-	end
-
-	old_load <= bk_load & bk_ena;
-	old_save <= bk_save & bk_ena;
-	old_ack  <= sd_ack;
-	
-	if(~old_ack & sd_ack) {sd_rd, sd_wr} <= 0;
-	
-	if(!bk_state) begin
-		if((~old_load & bk_load) | (~old_save & bk_save)) begin
-			bk_state <= 1;
-			bk_loading <= bk_load;
-			sd_lba <= 0;
-			sd_rd <=  bk_load;
-			sd_wr <= ~bk_load;
-		end
-		if(old_downloading & ~downloading & |img_size & bk_ena) begin
-			bk_state <= 1;
-			bk_loading <= 1;
-			sd_lba <= 0;
-			sd_rd <= 1;
-			sd_wr <= 0;
-		end 
 
 spram #(.widthad_a(14)) ram_inst
 (
@@ -1129,9 +1102,25 @@ wire bk_save    = status[7] | (bk_pending & OSD_STATUS && status[25]);
 reg  bk_loading = 0;
 reg  bk_state   = 0;
 
+reg osd_btn = 0;
+
 always @(posedge clk_sys) begin
 	reg old_load = 0, old_save = 0, old_ack;
+	
+	integer timeout = 0;
+	reg     last_rst = 0;
 
+	if (RESET) last_rst = 0;
+	if (status[0]) last_rst = 1;
+
+	if (last_rst & ~status[0]) begin
+		osd_btn <= 0;
+		if(timeout < 24000000) begin
+			timeout <= timeout + 1;
+			osd_btn <= 1;
+		end
+	end
+	
 	old_load <= bk_load & bk_ena;
 	old_save <= bk_save & bk_ena;
 	old_ack  <= sd_ack;
