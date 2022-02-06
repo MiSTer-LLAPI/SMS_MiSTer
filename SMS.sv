@@ -18,6 +18,7 @@
 //  with this program; if not, write to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //============================================================================
+//LLAPI: llapi.sv needs to be in rtl folder and needs to be declared in file.qip (set_global_assignment -name SYSTEMVERILOG_FILE rtl/llapi.sv)
 
 module emu
 (
@@ -144,6 +145,7 @@ module emu
 `ifdef MISTER_DUAL_SDRAM
 	//Secondary SDRAM
 	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
+
 	input         SDRAM2_EN,
 	output        SDRAM2_CLK,
 	output [12:0] SDRAM2_A,
@@ -185,8 +187,9 @@ assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DD
 assign LED_USER  = cart_download | bk_state | (status[25] & bk_pending);
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
-assign BUTTONS   = llapi_osd;
+assign BUTTONS   = osd_btn | llapi_osd;
 assign VGA_SCALER= 0;
+
 assign HDMI_FREEZE = 0;
 
 reg en216p;
@@ -928,6 +931,51 @@ always_comb begin
                 joy_d = joy_3[7:0];
         end
 end
+
+wire bk_load    = status[6];
+wire bk_save    = status[7] | (bk_pending & OSD_STATUS && status[25]);
+reg  bk_loading = 0;
+reg  bk_state   = 0;
+
+reg osd_btn = 0;
+always @(posedge clk_sys) begin
+
+	reg old_load = 0, old_save = 0, old_ack;
+	integer timeout = 0;
+	reg     last_rst = 0;
+
+	if (RESET) last_rst = 0;
+	if (status[0]) last_rst = 1;
+
+	if (last_rst & ~status[0]) begin
+		osd_btn <= 0;
+		if(timeout < 24000000) begin
+			timeout <= timeout + 1;
+			osd_btn <= 1;
+		end
+	end
+
+	old_load <= bk_load & bk_ena;
+	old_save <= bk_save & bk_ena;
+	old_ack  <= sd_ack;
+	
+	if(~old_ack & sd_ack) {sd_rd, sd_wr} <= 0;
+	
+	if(!bk_state) begin
+		if((~old_load & bk_load) | (~old_save & bk_save)) begin
+			bk_state <= 1;
+			bk_loading <= bk_load;
+			sd_lba <= 0;
+			sd_rd <=  bk_load;
+			sd_wr <= ~bk_load;
+		end
+		if(old_downloading & ~downloading & |img_size & bk_ena) begin
+			bk_state <= 1;
+			bk_loading <= 1;
+			sd_lba <= 0;
+			sd_rd <= 1;
+			sd_wr <= 0;
+		end 
 
 spram #(.widthad_a(14)) ram_inst
 (
