@@ -17,6 +17,7 @@ entity system is
 		ce_pix:		in	 STD_LOGIC; 
 		ce_sp:		in	 STD_LOGIC;
 		gg:			in	 STD_LOGIC;
+		ggres:			in STD_LOGIC;
 		systeme:		in  STD_LOGIC;
 		-- sg:			in	 STD_LOGIC;		-- sg1000
 		bios_en:	in	 STD_LOGIC;
@@ -41,6 +42,7 @@ entity system is
 		j1_th:		in  STD_LOGIC;
 		j1_start:	in  STD_LOGIC;
 		j1_coin:		in  STD_LOGIC;
+		j1_a3:		in  STD_LOGIC;
 		j2_up:		in	 STD_LOGIC;
 		j2_down:		in	 STD_LOGIC;
 		j2_left:		in	 STD_LOGIC;
@@ -50,6 +52,7 @@ entity system is
 		j2_th:		in  STD_LOGIC;
 		j2_start:	in  STD_LOGIC;
 		j2_coin:		in  STD_LOGIC;
+		j2_a3:		in  STD_LOGIC;
 		pause:		in	 STD_LOGIC;
 		
 		E0Type:	in  STD_LOGIC_VECTOR(1 downto 0);
@@ -325,6 +328,7 @@ begin
 		sp64		=> sp64,
 		HL			=> HL,
 		gg			=> gg,
+		ggres			=> ggres,
 		-- Bsg			=> sg,		-- sg1000
 		se_bank	=> vdp_se_bank,
 		RD_n		=> vdp_RD_n,
@@ -360,6 +364,7 @@ begin
 		sp64		=> sp64,
 		HL			=> HL,
 		gg			=> gg,
+		ggres			=> ggres,
 		-- Bsg			=> sg,		-- sg1000
 		se_bank	=> vdp2_se_bank,
 		RD_n		=> vdp2_RD_n,
@@ -488,6 +493,7 @@ port map(
 		J1_th		=> j1_th,
 		J1_start	=> j1_start,
 		J1_coin	=> j1_coin,
+		J1_a3		=> j1_a3,
 		J2_up		=> j2_up,
 		J2_down	=> j2_down,
 		J2_left	=> j2_left,
@@ -497,6 +503,7 @@ port map(
 		J2_th		=> j2_th,
 		J2_start	=> j2_start,
 		J2_coin	=> j2_coin,
+		J2_a3		=> j2_a3,
 		Pause		=> pause,
 		E0Type	=> E0Type,
 		E1Use		=> E1Use,

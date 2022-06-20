@@ -203,8 +203,8 @@ video_freak video_freak
 (
 	.*,
 	.VGA_DE_IN(vga_de),
-	.ARX((!ar) ? (border ? 12'd47 : 12'd32) : (ar - 1'd1)),
-	.ARY((!ar) ? (border ? 12'd35 : 12'd21) : 12'd0),
+	.ARX((!ar) ? (gg ? 12'd4 : (border ? 12'd47 : 12'd32)) : (ar - 1'd1)),
+	.ARY((!ar) ? (gg ? 12'd3 : (border ? 12'd35 : 12'd21)) : 12'd0),
 	.CROP_SIZE(en216p ? 10'd216 : 10'd0),
 	.CROP_OFF(0),
 	.SCALE(status[31:30])
@@ -216,7 +216,7 @@ video_freak video_freak
 // 0         1         2         3          4         5         6   
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXX                         XX
+// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXX                      XX
 
 `include "build_id.v"
 parameter CONF_STR = {
@@ -253,6 +253,7 @@ parameter CONF_STR = {
 	"P1OD,Border,No,Yes;",
 	"D5P1OST,Masked left column,BG,Black,Cut;",
 	"P1O8,Sprites per line,Standard,All;",
+	"P1o7,Game Gear Res.,Standard,Extended;",
 	"P1-;",
 	"D2P1OC,SMS FM sound,Enable,Disable;",
 
@@ -272,13 +273,13 @@ parameter CONF_STR = {
 	"D4P2OL,Gun Port,Port1,Port2;",
 	"D4P2OMN,Cross,Small,Medium,Big,None;",
 	"P2-;",
-	"P2o0,Paddle,Disabled,Enabled;",
+	"P2o56,Paddle Control,Disabled,Paddle,Joy;",
 
 	"-;",
 	"R0,Reset;",
-	"J1,Fire 1,Fire 2,Pause,Coin;",
-	"jn,A|P,B,Start,Coin;",
-	"jp,Y|P,A,Start,Coin;",
+	"J1,Fire 1,Fire 2,Pause,Coin,Arcade 3;",
+	"jn,A|P,B,Start,Coin,X;",
+	"jp,Y|P,A,Start,Coin,X;",
 	"V,v",`BUILD_DATE
 };
 
@@ -616,6 +617,7 @@ system #(63) system
 	.ce_pix(ce_pix),
 	.ce_sp(ce_sp),
 	.gg(gg),
+	.ggres(ggres),
 	.systeme(systeme),
 	.bios_en(~status[11] & ~systeme),
 
@@ -639,6 +641,7 @@ system #(63) system
 	.j1_th(joya_th),
 	.j1_start(swap ? joy_1[11] : joy_0[11]),
 	.j1_coin(swap ? joy_1[10] : joy_0[10]),
+	.j1_a3(swap ? joy_1[8] : joy_0[8]),
 
 	.j2_up(joyb[3]),
 	.j2_down(joyb[2]),
@@ -650,6 +653,7 @@ system #(63) system
 	.pause(joya[6]&joyb[6]),
 	.j2_start(swap ? joy_0[11] : joy_1[11]),
 	.j2_coin(swap ? joy_0[10] : joy_1[10]),
+	.j2_a3(swap ? joy_0[8] : joy_1[8]),
 
 	.j1_tr_out(joya_tr_out),
 	.j1_th_out(joya_th_out),
@@ -980,13 +984,14 @@ wire mask_column;
 wire smode_M1, smode_M2, smode_M3;
 wire pal = status[2];
 wire border = status[13] & ~gg;
+wire ggres = ~status[39] & gg;
 
 video video
 (
 	.clk(clk_sys),
 	.ce_pix(ce_pix),
 	.pal(pal),
-	.gg(gg),
+	.ggres(ggres),
 	.border(border),
 	.mask_column(mask_column),
 	.cut_mask(status[29]),
@@ -1193,7 +1198,8 @@ lightgun lightgun
 
 // Paddle support
 wire       jp_region    = status[10];
-wire       paddle_en    = status[32];
+wire       paddle_en    = status[37] | status[38];
+wire       paddle_joy   = status[38];
 
 reg  [3:0] paddle_0_nib,   paddle_1_nib;
 reg  [3:0] paddle_0_nib_q, paddle_1_nib_q;
@@ -1208,8 +1214,13 @@ always_ff @(posedge clk_sys) begin
 		// Japanese paddle (HPD-200)
 		if (en16khz) begin
 			if (paddle_0_tr) begin
+				if (paddle_joy) begin
+					{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
+					{paddle_1_nib_q, paddle_1_nib} <= {~joy1_x[7], joy1_x[6:0]};
+				end else begin
 				{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
 				{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
+				end
 				paddle_0_tr  <= 1'b0;
 				paddle_1_tr  <= 1'b0;
 			end else begin
@@ -1225,7 +1236,11 @@ always_ff @(posedge clk_sys) begin
 		joyb_th_out_q <= joyb_th_out;
 
 		if (joya_th_fall) begin
+			if (paddle_joy) begin
+				{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
+			end else begin
 			{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
+			end
 			paddle_0_tr  <= 1'b0;
 		end else if (joya_th_rise) begin
 			paddle_0_nib <= paddle_0_nib_q;
@@ -1233,7 +1248,11 @@ always_ff @(posedge clk_sys) begin
 		end
 
 		if (joyb_th_fall) begin
+			if (paddle_joy) begin
+				{paddle_1_nib_q, paddle_1_nib} <= {~joy1_x[7], joy1_x[6:0]};
+			end else begin
 			{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
+			end
 			paddle_1_tr  <= 1'b0;
 		end else if (joyb_th_rise) begin
 			paddle_1_nib <= paddle_1_nib_q;
