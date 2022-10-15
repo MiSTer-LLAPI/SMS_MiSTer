@@ -18,6 +18,8 @@
 //  with this program; if not, write to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //============================================================================
+//LLAPI: llapi.sv needs to be in rtl folder and needs to be declared in file.qip (set_global_assignment -name SYSTEMVERILOG_FILE rtl/llapi.sv)
+//LLAPI updated by RickDangerous - UltimateMiSTer.com
 
 module emu
 (
@@ -39,7 +41,6 @@ module emu
 	output        CE_PIXEL,
 
 	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-
 	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
 	output [12:0] VIDEO_ARX,
 	output [12:0] VIDEO_ARY,
@@ -51,15 +52,16 @@ module emu
 	output        VGA_VS,
 	output        VGA_DE,    // = ~(VBlank | HBlank)
 	output        VGA_F1,
-	output  [1:0] VGA_SL,
+	output [1:0]  VGA_SL,
 	output        VGA_SCALER, // Force VGA scaler
+	output        VGA_DISABLE, // analog out is off
 
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
 	output        HDMI_FREEZE,
 
 `ifdef MISTER_FB
-	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
+	// Use framebuffer in DDRAM
 	// FB_FORMAT:
 	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
 	//    [3]   : 0=16bits 565 1=16bits 1555
@@ -103,7 +105,7 @@ module emu
 	input         CLK_AUDIO, // 24.576 MHz
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
-	output        AUDIO_S, // 1 - signed audio samples, 0 - unsigned
+	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
 	output  [1:0] AUDIO_MIX, // 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
 
 	//ADC
@@ -145,7 +147,6 @@ module emu
 `ifdef MISTER_DUAL_SDRAM
 	//Secondary SDRAM
 	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
-
 	input         SDRAM2_EN,
 	output        SDRAM2_CLK,
 	output [12:0] SDRAM2_A,
@@ -189,13 +190,20 @@ assign LED_DISK  = 0;
 assign LED_POWER = 0;
 //LLAPI: OSD combinaison
 assign BUTTONS   = osd_btn | llapi_osd;
-//LLAPI
+//END
 assign VGA_SCALER= 0;
-
+assign VGA_DISABLE = 0;
 assign HDMI_FREEZE = 0;
 
-reg en216p;
-always @(posedge CLK_VIDEO) en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler && !scale);
+wire       vcrop_en = status[50];
+wire [3:0] vcopt    = status[54:51];
+reg        en216p;
+reg  [4:0] voff;
+
+always @(posedge CLK_VIDEO) begin
+	en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler && !scale);
+	voff <= (vcopt < 6) ? {vcopt,1'b0} : ({vcopt,1'b0} - 5'd24);
+end
 
 wire [1:0] ar = status[27:26];
 wire vga_de;
@@ -205,8 +213,8 @@ video_freak video_freak
 	.VGA_DE_IN(vga_de),
 	.ARX((!ar) ? (gg ? 12'd4 : (border ? 12'd47 : 12'd32)) : (ar - 1'd1)),
 	.ARY((!ar) ? (gg ? 12'd3 : (border ? 12'd35 : 12'd21)) : 12'd0),
-	.CROP_SIZE(en216p ? 10'd216 : 10'd0),
-	.CROP_OFF(0),
+	.CROP_SIZE(en216p && vcrop_en ? 10'd216 : 10'd0),
+	.CROP_OFF(voff),
 	.SCALE(status[31:30])
 );
 
@@ -216,7 +224,7 @@ video_freak video_freak
 // 0         1         2         3          4         5         6   
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXX                      XX
+// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXX         XXXXX
 
 `include "build_id.v"
 parameter CONF_STR = {
@@ -227,16 +235,17 @@ parameter CONF_STR = {
 	"DIP;",
 	"-;",
 	"C,Cheats;",
-	"H1OO,Cheats enabled,ON,OFF;",
+	"H1OO,Cheats Enabled,ON,OFF;",
 	"-;",
-	"H8D0R6,Load Backup RAM;",
-	"H8D0R7,Save Backup RAM;",
-	"H8D0OP,Autosave,OFF,ON;",
+	"H8OP,Autosave,OFF,ON;",
+	"H8H9D0R6,Load Backup RAM;",
+	"H8H9D0R7,Save Backup RAM;",
 	"H8-;",
 
-	"H8OA,Region,US/UE,Japan;",
+	"H8OA,Region,US/EU,Japan;",
 	"H8OB,BIOS,Enable,Disable;",
-	"H8OF,Disable mapper,No,Yes;",
+	"H8OF,Disable Mapper,No,Yes;",
+	"H8o8,Z80 Speed,Normal,Turbo;",
 	"H8-;",
 	"H7o12,VDPs,Both,2,1,None;",
 	"H7o34,PSGs,Both,2,1,None;",
@@ -245,29 +254,31 @@ parameter CONF_STR = {
 	"P1,Audio & Video;",
 	"P1-;",
 	"P1O2,TV System,NTSC,PAL;",
+	"P1-;",
 	"P1OQR,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"P1O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
-	"P1-;",
+	"d6P1oI,Vertical Crop,Disabled,216p(5x);",
+	"d6P1oJM,Crop Offset,0,2,4,8,10,12,-12,-10,-8,-6,-4,-2;",
 	"P1OUV,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"P1-;",
-	"P1OD,Border,No,Yes;",
-	"D5P1OST,Masked left column,BG,Black,Cut;",
-	"P1O8,Sprites per line,Standard,All;",
-	"P1o7,Game Gear Res.,Standard,Extended;",
+	"D2P1OD,Border,No,Yes;",
+	"P1OST,Masked Left Column,BG,Black,Cut;",
+	"P1O8,Sprites Per Line,Standard,All;",
+	"d2P1o7,Game Gear Res.,Standard,Extended;",
 	"P1-;",
-	"D2P1OC,SMS FM sound,Enable,Disable;",
+	"P1OC,SMS FM Sound,Enable,Disable;",
 
 	"P2,Input;",
 	"P2-;",
-	"P2O1,Swap joysticks,No,Yes;",
+	"P2O1,Swap Joysticks,No,Yes;",
 	"P2OE,Multitap,Disabled,Port1;",
-	"D3P2OH,Pause Btn Combo,No,Yes;",
-	"P2-;",
 	//LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[63] = 1.
 	//LLAPI: Always double check witht the bits map allocation table to avoid conflicts	
-	"P2oUV,Serial,OFF,SNAC,LLAPI;",
+	"P2oUV,Serial Port,Off,SNAC,LLAPI;",
 	"P2-;",
 	//LLAPI
+	"D3P2OH,Pause Btn Combo,No,Yes;",
+	"P2-;",
 	"D2P2OIJ,Gun Control,Disabled,Joy1,Joy2,Mouse;",
 	"D4P2OK,Gun Fire,Joy,Mouse;",
 	"D4P2OL,Gun Port,Port1,Port2;",
@@ -400,17 +411,15 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(0)) hps_io
 	.joystick_1(joy_1),
 	.joystick_2(joy_2),
 	.joystick_3(joy_3),
-
 	.joystick_l_analog_0({joy0_y, joy0_x}),
 	.joystick_l_analog_1({joy1_y, joy1_x}),
-
 	.paddle_0(paddle_0),
 	.paddle_1(paddle_1),
 
 	.buttons(buttons),
 	.ps2_key(ps2_key),
 	.status(status),
-	.status_menumask({systeme,~dbg_menu,en216p,status[13],~gun_en,~raw_serial,gg,~gg_avail,~bk_ena}),
+	.status_menumask({status[25],systeme,~dbg_menu,en216p,status[13],~gun_en,~raw_serial,gg,~gg_avail,~bk_ena}),
 	.forced_scandoubler(forced_scandoubler),
 	.new_vmode(pal),
 	.gamma_bus(gamma_bus),
@@ -425,7 +434,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(0)) hps_io
 	.ioctl_index(ioctl_index),
 
 	.ioctl_wait(ioctl_wait),
-	
+
 	.sd_lba('{sd_lba}),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
@@ -437,7 +446,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(0)) hps_io
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
-	
+
 	.ps2_mouse(ps2_mouse)
 );
 
@@ -466,7 +475,7 @@ sdram ram
 
 	.init(~locked),
 	.clk(clk_sys),
-	.clkref(systeme ? ce_pix : ce_cpu),
+	.clkref(systeme ? ce_pix : turbo ? ce_pix : ce_cpu),
 
 	.waddr(romwr_a),
 	.din(ioctl_dout),
@@ -507,6 +516,25 @@ sdramclk_ddr
 reg  rom_wr = 0;
 wire sd_wrack;
 reg  [23:0] romwr_a;
+reg  ysj_quirk = 0;
+
+always @(posedge clk_sys) begin
+	reg [31:0] cart_id;
+	reg old_download;
+	old_download <= cart_download;
+
+	if(~old_download && cart_download) {ysj_quirk} <= 0;
+
+	if(ioctl_wr & cart_download) begin
+		if(ioctl_addr == 'h7ffc) cart_id[31:24] <= ioctl_dout[7:0];
+		if(ioctl_addr == 'h7ffd) cart_id[23:16] <= ioctl_dout[7:0];
+		if(ioctl_addr == 'h7ffe) cart_id[15:08] <= ioctl_dout[7:0];
+		if(ioctl_addr == 'h7fff) cart_id[07:00] <= ioctl_dout[7:0];
+		if(ioctl_addr == 'h8000) begin
+			if(cart_id == 32'h13_70_01_4F) ysj_quirk <= 1; // Ys (Japan) Graphics Fix, forces VDP Version 1
+		end
+	end
+end
 
 always @(posedge clk_sys) begin
 	reg old_download, old_reset;
@@ -545,7 +573,7 @@ always_ff @(posedge clk_sys) begin
 	if (code_download & ioctl_wr) begin
 		case (ioctl_addr[3:0])
 			0:  gg_code[111:96]  <= ioctl_dout; // Flags Bottom Word
-			1:  gg_code[119:112]  <= ioctl_dout; // Flags Bottom Word
+			1:  gg_code[119:112] <= ioctl_dout; // Flags Bottom Word
 			2:  gg_code[127:120] <= ioctl_dout; // Flags Top Word
 			3:  gg_code[127:112] <= ioctl_dout; // Flags Top Word
 			4:  gg_code[71:64]   <= ioctl_dout; // Address Bottom Word
@@ -556,46 +584,51 @@ always_ff @(posedge clk_sys) begin
 			9:  gg_code[47:40]   <= ioctl_dout; // Compare Bottom Word
 			10: gg_code[55:48]   <= ioctl_dout; // Compare top Word
 			11: gg_code[63:56]   <= ioctl_dout; // Compare top Word
-			12: gg_code[7:0]    <= ioctl_dout; // Replace Bottom Word
+			12: gg_code[7:0]     <= ioctl_dout; // Replace Bottom Word
 			13: gg_code[15:8]    <= ioctl_dout; // Replace Bottom Word
 			14: gg_code[23:16]   <= ioctl_dout; // Replace Top Word
 			15: begin
 				gg_code[31:24]   <= ioctl_dout; // Replace Top Word
-				gg_code[128]     <=  1'b1;      // Clock it in
+				gg_code[128]     <= 1'b1;       // Clock it in
 			end
 		endcase
 	end
 end
 
 
-reg  dbr = 0;
+reg dbr = 0;
 always @(posedge clk_sys) begin
 	if(cart_download || bk_loading) dbr <= 1;
 end
 
-reg gg = 0;
-reg systeme = 0;
+reg        gg          = 0;
+reg        systeme     = 0;
+reg        palettemode = 0;
 reg [21:0] cart_mask, cart_mask512;
-reg cart_sz512;
+reg        cart_sz512;
 
 always @(posedge clk_sys) begin
 	reg old_download;
 	old_download <= cart_download;
 
-	if(ioctl_wr & cart_download) begin
+	if (ioctl_wr & cart_download) begin
 		cart_mask <= cart_mask | ioctl_addr[21:0];
 		cart_mask512 <= cart_mask512 | (ioctl_addr[21:0] - 10'd512);
-		if(!ioctl_addr) cart_mask <= 0;
-		if(ioctl_addr == 512) cart_mask512 <= 0;
-		gg <= ioctl_index[4:0] == 2;	
+		if (!ioctl_addr)
+			cart_mask <= 0;
+		if (ioctl_addr == 512)
+			cart_mask512 <= 0;
 		if ((ioctl_index[4:0] == 1) || (ioctl_index[4:0] == 2))
-		systeme <= 1'b0;
+			systeme <= 1'b0;
+		if ((ioctl_index[4:0] == 1) && (ioctl_index[6:5] == 2'b10)) // .SG file extension
+			palettemode <= 1'b1;
+		gg <= ioctl_index[4:0] == 2;
 	end;
 	if (old_download & ~cart_download) begin
 		cart_sz512 <= ioctl_addr[9];
 	end;
 	if (ioctl_wr & (ioctl_index==4)) begin
-		systeme <= 1'b1;;
+		systeme <= 1'b1;
 	end;
 end
 
@@ -616,6 +649,7 @@ system #(63) system
 	.ce_vdp(ce_vdp),
 	.ce_pix(ce_pix),
 	.ce_sp(ce_sp),
+	.turbo(turbo),
 	.gg(gg),
 	.ggres(ggres),
 	.systeme(systeme),
@@ -672,15 +706,17 @@ system #(63) system
 	.paddle(paddle),
 	.paddle2(paddle2),
 	.pedal(pedal),
-		
+
 	.x(x),
 	.y(y),
 	.color(color),
+	.palettemode(palettemode),
 	.mask_column(mask_column),
 	.black_column(status[28] && ~status[13]),
 	.smode_M1(smode_M1),
 	.smode_M2(smode_M2),
 	.smode_M3(smode_M3),
+	.ysj_quirk(ysj_quirk),
 	.pal(pal),
 	.region(status[10]),
 	.mapper_lock(status[15] && ~systeme),
@@ -703,11 +739,11 @@ system #(63) system
 	.nvram_we(nvram_we),
 	.nvram_d(nvram_d),
 	.nvram_q(nvram_q),
-	
+
 	.encrypt(SYSMODE[0][1:0]),
 	.key_a(key_a),
 	.key_d(key_d),
-	
+
 	.ROMCL(clk_sys),
 	.ROMAD(ioctl_addr),
 	.ROMDT(ioctl_dout),
@@ -731,16 +767,23 @@ spram #(.widthad_a(13)) encrypt_key
 	.q(key_d)
 );
 
+//assign joy[0] = status[1] ? joy_1[7:0] : joy_0[7:0];
+//assign joy[1] = status[1] ? joy_0[7:0] : joy_1[7:0];
+//assign joy[2] = joy_2[7:0];
+//assign joy[3] = joy_3[7:0];
+
+//LLAPI
 assign joy[0] = status[1] ? joy_b : joy_a;
 assign joy[1] = status[1] ? joy_a : joy_b;
 assign joy[2] = joy_c;
 assign joy[3] = joy_d;
+//END
 
-wire raw_serial = status[62];
+wire raw_serial = status[16];
 wire pause_combo = status[17];
 wire swap = status[1];
 
-wire [7:0] joya;	
+wire [7:0] joya;
 wire [7:0] joyb;
 wire [7:0] joyser;
 
@@ -766,31 +809,34 @@ always @(posedge clk_sys) begin
 
 	if (raw_serial) begin
 		joyser[3] <= USER_IN[1];//up
-		joyser[2] <= USER_IN[0];//down	
+		joyser[2] <= USER_IN[0];//down
 		joyser[1] <= USER_IN[5];//left
-		joyser[0] <= USER_IN[3];//right	
+		joyser[0] <= USER_IN[3];//right
 		joyser[4] <= USER_IN[2];//trigger / button1
 		joyser[5] <= USER_IN[6];//button2
 		joyser_th <= USER_IN[4];//sensor
-		
+
 		if (tmr) tmr <= tmr - 1'd1;
 		if (!USER_IN[0] & !USER_IN[2] & !USER_IN[6] & pause_combo) begin //D 1 2 combo
 			tmr <= 57000;
 		end
 		joyser[6] <= !tmr;
 		joyser[7] <= 1'b0;
-		
+
 		joya <= swap ? ~joy[1] : joyser;
-		joyb <= swap ? joyser : ~joy[0];	
+		joyb <= swap ? joyser : ~joy[0];
 		joya_th <=  swap ? 1'b1 : joyser_th;
 		joyb_th <=  swap ? joyser_th : 1'b1;
+
+		//LLAPI : REMOVE LINE
+		//USER_OUT <= {swap ? joyb_tr_out : joya_tr_out, 1'b1, swap ? joyb_th_out : joya_th_out, 4'b1111 };
+		//END
 
 	end else begin
 		joya <= ~joy[jcnt];
 		joyb <= status[14] ? 8'hFF : ~joy[1];
 		joya_th <=  1'b1;
 		joyb_th <=  1'b1;
-				
 
 		if(ce_cpu) begin
 			if(tmr > 57000) jcnt <= 0;
@@ -805,8 +851,12 @@ always @(posedge clk_sys) begin
 		end
 
 		if(reset | ~status[14]) jcnt <= 0;
+
+		//LLAPI : remove
+		//USER_OUT <= 7'b1111111;
+		//END		
 	end
-	
+
 	if(gun_en) begin
 		if(gun_port) begin
 			joyb_th <= ~gun_sensor;
@@ -956,6 +1006,8 @@ always_comb begin
         end
 end
 
+// END LLAPI
+
 spram #(.widthad_a(14)) ram_inst
 (
 	.clock     (clk_sys),
@@ -965,7 +1017,7 @@ spram #(.widthad_a(14)) ram_inst
 	.q         (ram_q)
 );
 
-wire [15:0] audio_l, audio_r; 
+wire [15:0] audio_l, audio_r;
 
 assign AUDIO_L=audio_l;
 assign AUDIO_R=audio_r;
@@ -975,7 +1027,7 @@ assign AUDIO_R=audio_r;
 //	clk_sys,
 //	audio_l[15:4], audio_r[15:4],
 //	AUDIO_L,       AUDIO_R
-//); 
+//);
 
 wire [8:0] x;
 wire [8:0] y;
@@ -985,6 +1037,7 @@ wire smode_M1, smode_M2, smode_M3;
 wire pal = status[2];
 wire border = status[13] & ~gg;
 wire ggres = ~status[39] & gg;
+wire turbo = status[40];
 
 video video
 (
@@ -995,7 +1048,7 @@ video video
 	.border(border),
 	.mask_column(mask_column),
 	.cut_mask(status[29]),
-   .smode_M1(smode_M1),
+	.smode_M1(smode_M1),
 	.smode_M3(smode_M3),
 	.x(x),
 	.y(y),
@@ -1006,6 +1059,7 @@ video video
 );
 
 reg ce_cpu;
+reg ce_snd;
 reg ce_vdp;
 reg ce_pix;
 reg ce_sp;
@@ -1061,9 +1115,9 @@ video_mixer #(.HALF_DEPTH(1), .LINE_LENGTH(300), .GAMMA(1)) video_mixer
 	.freeze_sync(),
 
 	.VGA_DE(vga_de),
-	.R((gun_en & gun_target) ? 8'd255 : {2{color[3:0]}}),
-	.G((gun_en & gun_target) ? 8'd0   : {2{color[7:4]}}),
-	.B((gun_en & gun_target) ? 8'd0   : {2{color[11:8]}})
+	.R((gun_en & gun_target && (~&gun_crosshair)) ? 8'd255 : {2{color[3:0]}}),
+	.G((gun_en & gun_target && (~&gun_crosshair)) ? 8'd0   : {2{color[7:4]}}),
+	.B((gun_en & gun_target && (~&gun_crosshair)) ? 8'd0   : {2{color[11:8]}})
 );
 
 
@@ -1096,10 +1150,10 @@ wire downloading = cart_download;
 reg old_downloading = 0;
 reg bk_ena = 0;
 always @(posedge clk_sys) begin
-	
+
 	old_downloading <= downloading;
 	if(~old_downloading & downloading) bk_ena <= 0;
-	
+
 	//Save file always mounted in the end of downloading state.
 	if(downloading && img_mounted && !img_readonly) bk_ena <= 1;
 end
@@ -1110,10 +1164,9 @@ reg  bk_loading = 0;
 reg  bk_state   = 0;
 
 reg osd_btn = 0;
-
 always @(posedge clk_sys) begin
+
 	reg old_load = 0, old_save = 0, old_ack;
-	
 	integer timeout = 0;
 	reg     last_rst = 0;
 
@@ -1127,13 +1180,13 @@ always @(posedge clk_sys) begin
 			osd_btn <= 1;
 		end
 	end
-	
+
 	old_load <= bk_load & bk_ena;
 	old_save <= bk_save & bk_ena;
 	old_ack  <= sd_ack;
-	
+
 	if(~old_ack & sd_ack) {sd_rd, sd_wr} <= 0;
-	
+
 	if(!bk_state) begin
 		if((~old_load & bk_load) | (~old_save & bk_save)) begin
 			bk_state <= 1;
@@ -1170,6 +1223,7 @@ wire       gun_en = gun_mode && !gg;
 wire       gun_target;
 wire       gun_sensor;
 wire       gun_trigger;
+wire [1:0] gun_crosshair = status[23:22];
 
 lightgun lightgun
 (
@@ -1188,7 +1242,7 @@ lightgun lightgun
 	.CE_PIX(ce_pix),
 
 	.BTN_MODE(gun_btn_mode),
-	.SIZE(status[23:22]),
+	.SIZE(gun_crosshair),
 	.SENSOR_DELAY(34),
 
 	.TARGET(gun_target),
@@ -1218,8 +1272,8 @@ always_ff @(posedge clk_sys) begin
 					{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
 					{paddle_1_nib_q, paddle_1_nib} <= {~joy1_x[7], joy1_x[6:0]};
 				end else begin
-				{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
-				{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
+					{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
+					{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
 				end
 				paddle_0_tr  <= 1'b0;
 				paddle_1_tr  <= 1'b0;
@@ -1239,7 +1293,7 @@ always_ff @(posedge clk_sys) begin
 			if (paddle_joy) begin
 				{paddle_0_nib_q, paddle_0_nib} <= {~joy0_x[7], joy0_x[6:0]};
 			end else begin
-			{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
+				{paddle_0_nib_q, paddle_0_nib} <= paddle_0;
 			end
 			paddle_0_tr  <= 1'b0;
 		end else if (joya_th_rise) begin
@@ -1251,7 +1305,7 @@ always_ff @(posedge clk_sys) begin
 			if (paddle_joy) begin
 				{paddle_1_nib_q, paddle_1_nib} <= {~joy1_x[7], joy1_x[6:0]};
 			end else begin
-			{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
+				{paddle_1_nib_q, paddle_1_nib} <= paddle_1;
 			end
 			paddle_1_tr  <= 1'b0;
 		end else if (joyb_th_rise) begin
@@ -1280,13 +1334,13 @@ always @(posedge clk_sys) begin
 	reg old_stb;
 	reg enter = 0;
 	reg esc = 0;
-	
+
 	old_stb <= ps2_key[10];
 	if(old_stb ^ ps2_key[10]) begin
 		if(ps2_key[7:0] == 'h5A) enter <= ps2_key[9];
 		if(ps2_key[7:0] == 'h76) esc   <= ps2_key[9];
 	end
-	
+
 	if(enter & esc) begin
 		dbg_menu <= ~dbg_menu;
 		enter <= 0;
@@ -1295,5 +1349,3 @@ always @(posedge clk_sys) begin
 end
 
 endmodule
-
-

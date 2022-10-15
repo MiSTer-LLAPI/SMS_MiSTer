@@ -16,6 +16,7 @@ entity system is
 		ce_vdp:		in	 STD_LOGIC;
 		ce_pix:		in	 STD_LOGIC; 
 		ce_sp:		in	 STD_LOGIC;
+		turbo:		in	 STD_LOGIC;
 		gg:			in	 STD_LOGIC;
 		ggres:			in STD_LOGIC;
 		systeme:		in  STD_LOGIC;
@@ -76,11 +77,13 @@ entity system is
 		x:				in	 STD_LOGIC_VECTOR(8 downto 0);
 		y:				in	 STD_LOGIC_VECTOR(8 downto 0);
 		color:		out STD_LOGIC_VECTOR(11 downto 0);
+		palettemode:	in	STD_LOGIC;
 		mask_column:out STD_LOGIC;
 		black_column:		in STD_LOGIC;
 		smode_M1:		out STD_LOGIC;
 		smode_M2:		out STD_LOGIC;
 		smode_M3:		out STD_LOGIC;
+		ysj_quirk:		in	STD_LOGIC;
 		pal:				in STD_LOGIC;
 		region:			in	STD_LOGIC;
 		mapper_lock:	in STD_LOGIC;
@@ -138,7 +141,7 @@ architecture Behavioral of system is
 	signal vdp_D_out:			std_logic_vector(7 downto 0);
 	signal vdp_IRQ_n:			std_logic;
 	signal vdp_color:			std_logic_vector(11 downto 0);
-	signal vdp_y1:				std_logic;
+--	signal vdp_y1:				std_logic;
 	signal vdp2_RD_n:			std_logic;
 	signal vdp2_WR_n:			std_logic;
 	signal vdp2_D_out:		std_logic_vector(7 downto 0);
@@ -189,6 +192,8 @@ architecture Behavioral of system is
 	signal FM_gated:			std_logic_vector(12 downto 0);
 	alias FM_sign:				std_logic is FM_out(13);
 	alias FM_adj:				std_logic is FM_out(12);
+	signal fm_a:            std_logic;
+	signal fm_d:            std_logic_vector(7 downto 0);
 	signal fm_WR_n:	   	std_logic;
 
 	signal mix_inL:			std_logic_vector(12 downto 0);
@@ -207,7 +212,7 @@ architecture Behavioral of system is
 	signal nvram_e:         std_logic := '0';
 	signal nvram_ex:        std_logic := '0';
 	signal nvram_p:         std_logic := '0';
-	signal nvram_cme:       std_logic := '0'; -- cpdemasters ram extension
+	signal nvram_cme:       std_logic := '0'; -- codemasters ram extension
 	signal nvram_D_out:     std_logic_vector(7 downto 0);
 	
 	signal lock_mapper_B:	std_logic := '0';
@@ -342,10 +347,12 @@ begin
 		x			=> x,
 		y			=> y,
 		color		=> vdp_color,
-		y1       => vdp_y1,
+		palettemode	=> palettemode,
+--		y1       => vdp_y1,
 		smode_M1  => smode_M1,
 		smode_M2  => smode_M2,
 		smode_M3  => smode_M3,
+		ysj_quirk	=> ysj_quirk,
 		mask_column => mask_column,
 		black_column => black_column,
 		reset_n  => RESET_n
@@ -378,10 +385,12 @@ begin
 		x			=> x,
 		y			=> y,
 		color		=> vdp2_color,
+		palettemode	=> palettemode,
 		y1       => vdp2_y1,
 --		smode_M1  => smode2_M1,
 --		smode_M2  => smode2_M2,
 --		smode_M3  => smode2_M3,
+		ysj_quirk	=> ysj_quirk,
 --		mask_column => mask2_column,
 		black_column => black_column,
 		reset_n  => RESET_n
@@ -418,18 +427,31 @@ begin
 	);
 	
 	fm: work.opll
-   port map
+	port map
 	(
 		xin		=> clk_sys,
 		xena		=> ce_cpu,
-		d        => D_in,
-		a        => A(0),
+		d        => fm_d,
+		a        => fm_a,
 		cs_n     => '0',
-		we_n		=> fm_WR_n,
+		we_n		=> '0',
 		ic_n		=> RESET_n,
 		mixout   => FM_out
 	);
-
+	
+	process (clk_sys)
+	begin
+		if rising_edge(clk_sys) then
+			if RESET_n='0' then
+				fm_d <= (others => '0');
+				fm_a <= '0';
+			elsif fm_WR_n='0' then
+				fm_d <= D_in;
+				fm_a <= A(0);
+			end if;
+		end if;
+	end process;
+	
 	
 -- AMR - Clamped volume boosting - if the top two bits match, truncate the topmost bit.
 -- If the top two bits don't match, duplicate the second bit across the output.
@@ -523,7 +545,7 @@ port map(
 		RESET_n	=> RESET_n
 	);
 	
-	ce_z80 <= ce_pix when systeme = '1' else ce_cpu;
+	ce_z80 <= ce_pix when (systeme = '1' or turbo='1') else ce_cpu;
 
 	ram_a <= A(13 downto 0) when systeme = '1' else '0' & A(12 downto 0);
 	ram_we <= ram_WR;
