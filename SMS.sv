@@ -18,8 +18,10 @@
 //  with this program; if not, write to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //============================================================================
+
+
 //LLAPI: llapi.sv needs to be in rtl folder and needs to be declared in file.qip (set_global_assignment -name SYSTEMVERILOG_FILE rtl/llapi.sv)
-//LLAPI updated by RickDangerous - UltimateMiSTer.com
+
 
 module emu
 (
@@ -272,7 +274,8 @@ parameter CONF_STR = {
 	"P2-;",
 	"P2O1,Swap Joysticks,No,Yes;",
 	"P2OE,Multitap,Disabled,Port1;",
-	//LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[63] = 1.
+	//"P2OG,SNAC,Off,On;",
+    //LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[63] = 1.
 	//LLAPI: Always double check witht the bits map allocation table to avoid conflicts	
 	"P2oUV,Serial Port,Off,SNAC,LLAPI;",
 	"P2-;",
@@ -852,9 +855,10 @@ always @(posedge clk_sys) begin
 
 		if(reset | ~status[14]) jcnt <= 0;
 
-		//LLAPI : remove
+
+		//LLAPI : REMOVE LINE
 		//USER_OUT <= 7'b1111111;
-		//END		
+		//END	
 	end
 
 	if(gun_en) begin
@@ -1007,6 +1011,7 @@ always_comb begin
 end
 
 // END LLAPI
+
 
 spram #(.widthad_a(14)) ram_inst
 (
