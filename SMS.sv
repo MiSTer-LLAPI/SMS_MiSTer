@@ -268,6 +268,12 @@ parameter CONF_STR = {
 	"H8FS2,GG;",
 	"DIP;",
 	"-;",
+	//LLAPI: OSD menu item
+	//LLAPI Always ON
+	"-,<< LLAPI enabled >>;",
+	"-,<< Use USER I/O port >>;",
+	"-;",
+	//END LLAPI	
 	"C,Cheats;",
 	"H1OO,Cheats Enabled,ON,OFF;",
 	"-;",
@@ -311,8 +317,8 @@ parameter CONF_STR = {
 	//"P2OG,SNAC,Off,On;",
     //LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[63] = 1.
 	//LLAPI: Always double check witht the bits map allocation table to avoid conflicts	
-	"P2oUV,Serial Port,Off,SNAC,LLAPI;",
-	"P2-;",
+	//"P2oUV,Serial Port,Off,SNAC,LLAPI;",
+	//"P2-;",
 	//LLAPI
 	"D3P2OH,Pause Btn Combo,No,Yes;",
 	"P2-;",
@@ -919,7 +925,7 @@ wire [71:0] llapi_analog, llapi_analog2;
 wire [7:0]  llapi_type, llapi_type2;
 wire llapi_en, llapi_en2;
 
-wire llapi_select = status[63];
+wire llapi_select = 1'b1;
 
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
 
@@ -1015,7 +1021,7 @@ wire [7:0] joy_ll_b = {
 	llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // dpad
 };
 
-//Assign (DOWN + FIRST BUTTON) Combinaison to bring the OSD up - P1 and P1 ports.
+//Assign (DOWN + START + FIRST BUTTON) Combinaison to bring the OSD up - P1 and P2 ports.
 //TODO : Support long press detection
 wire llapi_osd = (llapi_buttons[26] & llapi_buttons[5] & llapi_buttons[0]) || (llapi_buttons2[26] & llapi_buttons2[5] & llapi_buttons2[0]);
 
